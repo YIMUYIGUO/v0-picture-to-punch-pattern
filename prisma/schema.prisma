@@ -1,0 +1,232 @@
+// Prisma Schema for MySQL
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表（NextAuth 需要）
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  emailVerified DateTime?
+  password      String
+  displayName   String?
+  role          String    @default("user")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  subscriptions Subscription[]
+  sharedPatterns SharedPattern[]
+  patternLikes  PatternLike[]
+  giftSubscriptionsCreated GiftSubscription[] @relation("CreatedGifts")
+  giftSubscriptionsReceived GiftSubscription[] @relation("ReceivedGifts")
+  adminActivityLogs AdminActivityLog[]
+  paymentOrders PaymentOrder[]
+
+  @@map("users")
+}
+
+// NextAuth Account 表
+model Account {
+  id                String  @id @default(uuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+// NextAuth Session 表
+model Session {
+  id           String   @id @default(uuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// NextAuth VerificationToken 表
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// 订阅表
+model Subscription {
+  id                      String    @id @default(uuid())
+  userId                  String
+  planType                String
+  status                  String    @default("active")
+  amount                  Decimal   @db.Decimal(10, 2)
+  currentPeriodStart      DateTime
+  currentPeriodEnd        DateTime
+  monthlyGenerationsUsed  Int       @default(0)
+  monthlyGenerationsLimit Int       @default(10)
+  giftSubscriptionId      String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  giftSubscription GiftSubscription? @relation(fields: [giftSubscriptionId], references: [id])
+
+  @@index([userId])
+  @@map("subscriptions")
+}
+
+// 分享图案表
+model SharedPattern {
+  id                String   @id @default(uuid())
+  userId            String
+  title             String   @db.VarChar(255)
+  description       String?  @db.Text
+  imageUrl          String?  @db.Text
+  originalImageUrl  String?  @db.Text
+  patternData       Json
+  panelWidth        Int
+  panelHeight       Int
+  holeDiameter      Decimal  @db.Decimal(10, 2)
+  holeSpacing       Decimal  @db.Decimal(10, 2)
+  conversionMode    String   @db.VarChar(50)
+  userDisplayName   String?
+  isPublic          Boolean  @default(false)
+  approvalStatus    String   @default("pending")
+  approvedAt        DateTime?
+  likesCount        Int      @default(0)
+  viewsCount        Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  likes PatternLike[]
+
+  @@index([userId])
+  @@index([approvalStatus])
+  @@index([isPublic])
+  @@map("shared_patterns")
+}
+
+// 图案点赞表
+model PatternLike {
+  id        String   @id @default(uuid())
+  userId    String
+  patternId String
+  createdAt DateTime @default(now())
+
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pattern SharedPattern @relation(fields: [patternId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, patternId])
+  @@index([patternId])
+  @@map("pattern_likes")
+}
+
+// 礼品订阅表
+model GiftSubscription {
+  id              String    @id @default(uuid())
+  giftCode        String    @unique @db.VarChar(255)
+  createdBy       String
+  recipientEmail  String?
+  recipientUserId String?
+  planType        String
+  amount          Decimal   @db.Decimal(10, 2)
+  status          String    @default("pending")
+  notes           String?   @db.Text
+  expiresAt       DateTime
+  redeemedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  creator       User           @relation("CreatedGifts", fields: [createdBy], references: [id])
+  recipient     User?          @relation("ReceivedGifts", fields: [recipientUserId], references: [id])
+  subscriptions Subscription[]
+
+  @@index([giftCode])
+  @@index([status])
+  @@map("gift_subscriptions")
+}
+
+// 管理员活动日志表
+model AdminActivityLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  action     String
+  targetType String?
+  targetId   String?
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  admin User @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([createdAt])
+  @@map("admin_activity_logs")
+}
+
+// 支付订单表
+model PaymentOrder {
+  id              String    @id @default(uuid())
+  userId          String
+  orderId         String    @unique
+  platformOrderId String?
+  planType        String
+  amount          Decimal   @db.Decimal(10, 2)
+  status          String    @default("pending")
+  paymentMethod   String?
+  paymentData     Json?
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([orderId])
+  @@map("payment_orders")
+}
+
+// 系统设置表
+model SystemSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       Json
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+// 系统日志表
+model SystemLog {
+  id        String   @id @default(uuid())
+  eventType String
+  message   String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@index([eventType])
+  @@index([createdAt])
+  @@map("system_logs")
+}
